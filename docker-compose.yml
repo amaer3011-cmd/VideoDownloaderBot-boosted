@@ -1,0 +1,62 @@
+name: ${APP_SLUG:-videodownloaderbot}
+
+services:
+  videodownloaderbot:
+    # Deployment builds candidates as :candidate; :local is the running release.
+    image: ${APP_SLUG:-videodownloaderbot}:${APP_IMAGE_TAG:-local}
+    build:
+      context: .
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      # Downloads must stay on the bind-mounted VPS filesystem even if an old
+      # .env still contains the legacy /tmp workspace.
+      OUTPUT_FOLDER: /app/data/downloads
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  # ---- Optional boosters (not started by the automatic deploy). Start with:
+  #   docker compose --profile boost up -d
+  # and then set the matching variables in .env (see .env-example).
+
+  # Supplies YouTube "PO tokens" so yt-dlp is trusted more, without cookies or a
+  # proxy. .env: YTDLP_POT_BASE_URL=http://bgutil-pot:4416
+  bgutil-pot:
+    profiles: ["boost"]
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    restart: unless-stopped
+    init: true
+
+  # Local Telegram Bot API server: uploads go by file path (no HTTP upload of the
+  # video), much faster, and the 50 MB limit becomes 2 GB.
+  # .env: TELEGRAM_API_URL=http://telegram-bot-api:8081 and TELEGRAM_API_ID/HASH
+  # (from https://my.telegram.org). Call /logOut once on the cloud API first.
+  telegram-bot-api:
+    profiles: ["boost"]
+    image: aiogram/telegram-bot-api:latest
+    restart: unless-stopped
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      TELEGRAM_LOCAL: "1"
+    volumes:
+      - telegram-bot-api-data:/var/lib/telegram-bot-api
+      # Same path as in the bot container, so file:// paths resolve for both.
+      - ./data:/app/data
+
+volumes:
+  telegram-bot-api-data:
