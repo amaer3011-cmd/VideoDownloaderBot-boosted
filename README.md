@@ -1,449 +1,109 @@
-# VideoDownloaderBot
+# بوت تحميل الفيديوهات (تليجرام)
 
-## A **self‑hosted Telegram bot** that downloads media from a link using **yt-dlp**.
+أزرار ملونة بالكامل • أكتر من 1750 موقع • تحميل ورفع سريع • كاش فوري • ألبومات الصور • لوحة أدمن
 
-> Paste a link → bot fetches info instantly → you choose how to receive it.
->
-> **Video** (Telegram video) • **Document** (original file) • **Audio** (MP3)
+## 1) المتغيرات (Variables)
 
-**Hard size limit:** **50 MB** (video/document). Audio is available **only if it can fit into 50 MB**.
+البوت يعمل بوضع **بلا سقف تطبيقي**: لا حصة يومية، ولا حد لمدة الفيديو المسجل، ولا حد لعدد الروابط أو عناصر القوائم أو الدفعات المتزامنة. إعدادات الحصص القديمة المحفوظة في قاعدة البيانات لم تعد تُطبّق.
 
-**Clean UX:** a single status message updates during download/upload, then **disappears on success** (only the media stays).
+| المتغير | مطلوب | الوصف |
+|---|---|---|
+| `API_ID` / `API_HASH` | ✅ | من https://my.telegram.org |
+| `BOT_TOKEN` | ✅ | من @BotFather |
+| `ADMIN_IDS` | يُفضّل | أيدي حسابك (فاصلة بين أكتر من أدمن) |
+| `DB_PATH` | `/data/bot.db` | مسار قاعدة SQLite. لو المنصة طلبته اكتب `/data/bot.db` (مش `/app/...` لأنه غير قابل للكتابة وبيتمسح مع كل نشر) |
+| `ALLOWED_USERS` | اختياري | أيديّات المستخدمين المسموح لهم (مفصولة بفواصل) |
+| `TRANSFER_PROFILE` | `fast` | يرفع الإعدادات القديمة للحد الأدنى السريع؛ `custom` يحترم القيم التي تحددها |
+| `UPLOAD_WORKERS` | 16 | طلبات رفع متوازية للملفات الكبيرة |
+| `CONNECTIONS` / `FRAGMENTS` | 24 / 24 | اتصالات وأجزاء التنزيل بالتوازي |
 
-Works best on **Ubuntu 22.04 / 24.04**. **Docker is recommended.**
+**الوصول عام افتراضيًا** ويمكن تغييره يدويًا من لوحة الأدمن.
 
----
+**YouTube والكوكيز:** لو ظهر «Sign in to confirm you're not a bot» (حجب IP الاستضافة)، افتح لوحة الأدمن ← 🍪 كوكيز يوتيوب وابعت ملف `cookies.txt` (من نافذة خاصة بحساب جوجل ثانوي)، أو حطه في `COOKIES_B64`. الكوكيز بتتخزن في `/data/cookies.txt`. متغير `PROXY` اختياري. لا يوجد حل مضمون 100% لأن سياسة يوتيوب تتغير؛ لو الكوكيز انتهت ارفع جديدة.
 
-## Why this bot exists
+## تدفق الرابط: Metadata ثم اختيار الجودة
 
-Most “download bots” are either public (unstable / rate-limited / banned), or self-hosted but painful to set up.
+1. يتحقق البوت من الرابط ثم يستدعي yt-dlp على السيرفر بوضع فحص فقط، من غير تنزيل ملف الفيديو.
+2. يعرض العنوان والمدة والصورة المصغرة ودقات المصدر المتاحة، ويضع الحجم التقديري ونوع الملف على أزرار الجودة.
+3. عند اختيار المستخدم يبدأ التنزيل الفعلي على السيرفر، ثم يرفع الملف إلى المحادثة مع شريط تقدم وسرعة ووقت متوقع.
 
-**VideoDownloaderBot** is intentionally:
+خدمة الفحص والتنزيل تعمل داخل backend البوت على Railway؛ لم أفتح REST API عامًا منفصلًا، لتجنب تعريض خدمة جلب الروابط لطلبات عشوائية ومخاطر SSRF. قاعدة البيانات الحالية SQLite محلية على المسار `/data/bot.db`؛ Volume دائم مركب على `/data` مطلوب للحفاظ على الإعدادات والكاش والإحصائيات بعد إعادة النشر. SQLite مناسبة لنسخة واحدة من البوت؛ تعدد النسخ يحتاج نقل قاعدة البيانات إلى PostgreSQL ومراجعة تنسيق polling/المهام، لكنه لا يحل حظر YouTube أو بطء الشبكة. تقديرات الأحجام تقريبية؛ روابط القوائم/عدة روابط تعرض ملخصًا عامًا وتطبق الجودة المختارة على الدفعة، ولا تعرض معاينة منفصلة لكل عنصر. إذا حفظ المستخدم جودة افتراضية من الإعدادات، تظهر metadata ثم يبدأ التنزيل تلقائيًا؛ اختر «اسألني كل مرة» لانتظار اختياره.
 
-* **Self-hosted first** (VPS / home server)
-* **Strict & predictable** (50 MB limit, no “maybe it will fit” downloads)
-* **No nonsense setup** (one command installer)
-* **Nice UX in Telegram** (buttons, progress, cancel)
+الإعدادات الافتراضية مضبوطة لسرعة أعلى. أثناء التنزيل والرفع يظهر **شريط تقدم متعدد الأسطر مع النسبة والحجم والسرعة والوقت المتبقي ورقم العنصر من الدفعة** متى وفر المصدر الحجم الكلي؛ إذا لم يتوفر، يظهر شريط متحرك والحجم والسرعة الحالية. ألبومات Telegram تُرسل كمجموعة، لذلك يظهر تقدمها بعدد الصور في الدفعة بدل نسبة بايت دقيقة.
 
----
+السرعة الفعلية تعتمد على خطة الاستضافة والموقع المصدر والشبكة. `fast` هو الافتراضي ويرفع حتى القيم القديمة الأقل (24/24/16). التوازي الأعلى قد يسبب 403/429 أو FloodWait؛ إذا حصل ذلك اضبط `TRANSFER_PROFILE=custom` ثم خفّض `CONNECTIONS` و`FRAGMENTS` إلى 8–16 و`UPLOAD_WORKERS` إلى 8–12 في متغيرات Railway.
 
-## Features
+### ماذا تقيس لوحة الأدمن؟
 
-✅ Supports many websites (YouTube, TikTok, X/Twitter, Reddit, and more — whatever yt-dlp supports)
+- **اختبار السرعة** يجمع تنزيلًا تجريبيًا من Cloudflare عبر 4 اتصالات (كل منها 25 MiB)، ثم يرفع ملف عينة 40 MiB إلى Telegram. الأرقام متوسط عينة آنية من مسار الخادم، وليست سرعة YouTube أو الحد الأقصى المضمون للخطة.
+- **الإحصائيات** تعرض استهلاك CPU الحالي لعملية البوت بعينة قصيرة، وذاكرة العملية/حد الذاكرة الظاهر عبر cgroup، والمساحة المتاحة لمجلد التنزيل وقاعدة البيانات، ومدة تشغيل العملية. كما تفصل الدفعات التي بدأت فعلًا عن الطلبات التي ما زالت تنتظر اختيار الجودة.
+- حدود الخطة ومقاييس Railway الكاملة لا تظهر دائمًا داخل الحاوية؛ راجع Railway Metrics لمعرفة سقف الخطة والاستهلاك على مستوى الخدمة. لا يمكن لقاعدة بيانات أن تجعل اختبار الشبكة أدق أو ترفع حد الخادم.
 
-✅ Inline buttons: **Video / Document / Audio**
+لو رجع aria2 **exit code 28**، البوت يعيد المحاولة تلقائيًا بمحمّل yt-dlp الأصلي، ويعطّل aria2 لبقية التشغيل. حسب [دليل aria2 الرسمي](https://aria2.github.io/manual/en/html/aria2c.html)، الكود 28 يعني أن aria2 رفض خيارًا أو قيمة خيار.
 
-✅ Progress feedback (**download + upload**) with message edits (Telegram-friendly throttling)
+**حدود المنصة والموارد تظل قائمة:** يضع المشروع سقفًا يقارب 2GB للملف الواحد، ويحاول خفض الجودة تلقائيًا إذا تجاوزه؛ إزالة هذا السقف لا تجعل واجهة الإرسال أو موارد Railway غير محدودة. السرعة الفعلية تعتمد على خطة الاستضافة، سرعة المصدر والشبكة، وقد يبطئ التوازي المفرط أو يسبب 403/429. راقب RAM/CPU ومساحة Volume `/data`؛ البث المباشر غير مدعوم.
 
-✅ **Queue + workers** (controlled concurrency)
+Telegram يذكر حدًا قدره 50MB لرفع الملفات عبر **Bot API القياسي** في [FAQ الرسمي](https://core.telegram.org/bots/faq). هذا المشروع يستخدم Kurigram المبني على MTProto؛ لذلك لا نخلط الحدّين ولا نعد برفع غير محدود: سقف التطبيق الحالي قرابة 2GB، والقبول الفعلي يظل خاضعًا لقيود Telegram والمكتبة والاستضافة.
 
-✅ **Cancel** button during the process (download *and* upload)
+## 2) النشر على Railway
 
-✅ Safe filenames:
+1. ارفع المجلد على GitHub.
+2. Railway ← New Project ← Deploy from GitHub Repo.
+3. من تبويب Variables ضيف المتغيرات المطلوبة.
+4. **مهم:** ضيف Volume واربطه على المسار `/data` (عشان الكاش وقاعدة البيانات ما يضيعوش مع كل Deploy).
+   - من الـ Service ← Settings ← **Volumes** ← New Volume ← Mount Path: `/data`.
+   - مفيش محتاج Domain ولا Port: البوت بيشتغل Worker بيتصل بتليجرام (Polling)، فسيب Networking فاضي.
+   - خلي عدد النسخ (Replicas) = 1 بس، لأن نسختين بنفس التوكن هيتعارضوا.
+5. بعد ما يشتغل: افتح البوت واكتب `/start` ← 🛠 لوحة الأدمن ← ⚡ اختبار السرعة.
+6. تأكد من اللوج (Deployments ← View Logs) إنك شايف سطر `sites: ... | aria2c: True | impersonate: True | upload-workers: 16`. ولو ظهر `upload tuning skipped` يبقى إصدار المكتبة اتغير.
 
-* uses video title
-* removes hashtags
-* sanitizes forbidden characters
-* avoids weird trailing dots/spaces
-
-✅ **Strict 50 MB pre-check**:
-
-* if it won’t fit → bot tells you **before downloading**
-* if it can’t reliably estimate size → bot refuses (by design)
-
-✅ Designed for **private self-hosting** (not a public “open” downloader service)
-
----
-
-## How it works (in one minute)
-
-1. You send a URL.
-
-2. Bot calls yt-dlp **metadata-only** (no download yet).
-
-3. Bot builds a best-first list of **video candidates**:
-
-* ranks Telegram-compatible H.264 MP4 by compatibility and quality
-* supports both progressive MP4 and MP4 video + M4A audio without automatically preferring progressive
-* for YouTube, prefers the uploader's original audio over regional automatic dubs, including after fallback retries
-* handles deduplicated Instagram direct MP4 candidates whose codec metadata is missing
-
-4. Bot tries to **prove** final size is ≤ 50 MB:
-
-* uses `filesize` / `filesize_approx` when available
-* if missing, tries a **Range probe** on direct media URLs (`Content-Range`) to get real byte size
-
-5. If size can be proven and fits:
-
-* it offers **Video / Document** (and Audio if available)
-
-6. For **Audio (MP3)**:
-
-* uses duration to pick the **highest MP3 bitrate** that will safely fit (with headroom)
-* for YouTube, extracts the original audio track when YouTube exposes it; an automatic dub is only a fallback
-
-7. During download/upload:
-
-* status message updates with progress
-* you can cancel anytime
-
-8. On success:
-
-* status message is deleted
-* only the final media remains in chat
-
----
-
-## Quick start (recommended): one‑line installer
-
-Run on your Ubuntu server (SSH):
+## 3) النشر على VPS (بديل)
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/Avazbek22/VideoDownloaderBot/main/install.sh)
+cp .env.example .env     # املا القيم
+docker compose up -d --build
+docker compose logs -f
 ```
 
-The installer will:
+## أوامر الأدمن
 
-* Install **Git**, **Docker**, Compose, `flock`, `curl`, and Python 3 when needed
-* Preserve an existing `.env`, `data/`, and `logs/`
-* Ask for **BOT_TOKEN** only when it is not configured
-* Build and validate the production image before replacing the container
-* Enable automatic deployment from `origin/main` and nightly yt-dlp image updates
+- `/ban <user_id>` و`/unban <user_id>` — حظر/فك حظر مستخدم (الأدمن ما يتحظرش).
+- `/allow <user_id>` و`/unallow <user_id>` — إضافة/شيل مستخدم من المسموح لهم (بيشتغل لما الوصول يكون 🔒 خاص).
+- ⚙️ إعدادات البوت: عام/خاص فقط؛ لا توجد إعدادات لحصص أو مدد تنزيل.
+- 💧 العلامة المائية: تفعيل/إيقاف، نوع (نص أو صورة)، المكان (4 أركان + منتصف)، والحجم (صغير/وسط/كبير).
+- لوحة الأدمن ← إحصائيات: مستخدمين وتنزيلات، نشاط آخر 24 ساعة، كاش، دفعات/عناصر جارية وانتظار الجودة، وقياسات CPU/RAM/القرص المحلية.
 
-It clones the repository as your user and asks for `sudo` only for the
-installation itself. To install from an existing checkout, run
-`sudo bash install.sh` inside it; running it again later is safe and repairs
-the installation.
+## سلوك مهم
 
-> No Python knowledge required. One command on a fresh Ubuntu VPS.
+- **كاش الروابط المتكررة:** يعيد البوت فحص metadata لعرض المعلومات والاختيارات، ثم يستخدم `file_id` المخزن للرفع السريع بعد اختيار الجودة بدل إعادة تنزيل المصدر.
+- **تزامن مفتوح:** مفيش حصص يومية أو حد متزامن لكل مستخدم/دفعة؛ موارد السيرفر قد تصبح عنق الزجاجة.
+- **الأزرار الملونة:** تليجرام بيدعم 3 ألوان بس (أزرق/أخضر/أحمر) وبتظهر على النسخ الأحدث من تطبيق تليجرام. الأخضر للتنفيذ والتأكيد، الأحمر للإلغاء والحذف، الأزرق للاختيارات والتنقل. حالتها في 🛠 لوحة الأدمن ← إحصائيات (🎨).
 
----
+- **أعلى جودة** تفضّل H.264 لأن بعض مشغلات Telegram لا تعرض VP9/AV1 جيدًا داخل MP4؛ زر أعلى جودة يختار أعلى صيغة مطابقة متاحة، وتظهر أزرار الدقات العالية الموجودة بالمصدر عند فحص رابط مفرد.
+- سقف المشروع للملف الواحد يقارب 2GB؛ لو الملف أكبر، زر «أعلى جودة» يجرب 1080p ثم 720p و480p و360p، واختيار الدقة العالية يجرّب الدقات الأقل المتاحة تدريجيًا.
+- الرفع بيتعاد تلقائيًا (3 محاولات) ويحترم FloodWait.
+- **Docker:** الحاوية بتبدأ كـ root لحظيًا (تحدّث yt-dlp وتظبط صلاحيات `/data`) وبعدها البوت بيشتغل بمستخدم عادي (uid 10001). على VPS مجلد `./data` هيتحوّل ملكيته لـ 10001.
 
-## After installation
+## العلامة المائية
 
-Go to the install folder printed by the script (default: `~/VideoDownloaderBot`) and use:
+- بتتطبق على الفيديوهات بس (الصوت MP3 والصور والألبومات من غير علامة).
+- **تكلفة:** كل فيديو بيتعاد ترميزه (H.264) فبياخد وقت ومعالج أكتر. التزامن بلا سقف، فراقب CPU وRAM ومساحة القرص.
+- **النص بالإنجليزي** (مثلًا `@channel`). للعربي استخدم **علامة صورة** لأن النص العربي بيطلع بحروف مفصولة. ابعت الصورة PNG بخلفية شفافة كـ **ملف (File)** عشان الشفافية ما تضيعش.
+- الكاش بيفرّق بين النسخة العادية والنسخ اللي عليها علامة، فتغيير العلامة ما بيبعتش نسخة قديمة.
+- لو إضافة العلامة فشلت، العنصر بيفشل برسالة واضحة (مش بيتبعت من غير علامة بالسكوت).
 
-```bash
-cd ~/VideoDownloaderBot
+## ملاحظات
 
-# logs
-# (works with either docker compose v2 or docker-compose v1)
-docker compose logs -f --tail=200 || docker-compose logs -f --tail=200
+- **الأمان (SSRF):** كل رابط (بتاع المستخدم، أو اللي بيتلقط من جوه صفحة، أو Redirect) بيتفحص إنه مش عنوان داخلي قبل ما السيرفر يطلبه. ده بيغطي فحص الصفحات والـ Playlists، لكن yt-dlp بيحل DNS ويتبع Redirects جوه نفسه، فلو هتفتح البوت للعامة قيّد الـ egress على مستوى الشبكة (على VPS: قاعدة iptables تمنع الوصول للشبكات الخاصة من الحاوية).
+- المكتبتان `kurigram` و`tgcrypto` مثبّتتان على إصدار بعينه لأن تحسين سرعة الرفع بيعدّل كود المكتبة وقت التشغيل. لو هترقّيهم، جرّب اختبار السرعة بعدها (لو الحقن فشل هتلاقي تحذير `upload tuning skipped` في اللوج ورفع متوازي = 4 في الإحصائيات).
 
-# restart
-(docker compose restart || docker-compose restart)
+- YouTube قد يرفض IP مركز البيانات؛ الحل الأساسي كوكيز من لوحة الأدمن، ويمكن إضافة `PROXY` سكني.
+- المحركات (yt-dlp / gallery-dl) بتتحدث تلقائيًا عند كل تشغيل؛ اعمل Redeploy كل فترة.
+- كل GB بيطلع من Railway بيتحسب عليك، والبوت بيرفع كل فيديو لتليجرام.
 
-# stop + remove container
-(docker compose down || docker-compose down)
 
-# start
-(docker compose up -d || docker-compose up -d)
-```
-
-Runtime logs are also written to `logs/bot.log`. Downloads use per-job directories under `data/downloads/`; both directories survive deployment and rollback. Docker pins the download workspace to `/app/data/downloads`, so a legacy `.env` value cannot redirect media into the bounded `/tmp` tmpfs.
-
-### Automatic deployment and rollback
-
-`videodownloaderbot-deploy.timer` checks `origin/main` every two minutes and deploys a new commit once its GitHub checks pass (or after 30 minutes if CI never starts). A candidate image is built first; if it is identical to the running one — documentation or test changes — the checkout advances without a restart. Before replacement, deployment verifies Python imports, ffmpeg, ffprobe, Node, yt-dlp, and Telegram `getMe`.
-
-If the build, those checks, container startup, or health stabilization fails, the previous commit and the exact image it ran are restored and the failed commit is skipped until a newer one arrives. For ten minutes after a release the timer keeps watching; a release that turns unhealthy or restarts is rolled back automatically. The bot counts as healthy only while its download workers run and Telegram answers its `getUpdates` requests.
-
-`videodownloaderbot-rebuild.timer` rebuilds the running commit every night with a fresh `REBUILD_STAMP`, which refreshes yt-dlp without touching the slower OS layers. The bot restarts only when `python -m yt_dlp --version` reports a new version, and a new version goes through the same checks and rollback. Both schedules live in [`deploy.conf`](deploy.conf).
-
-```bash
-sudo bash scripts/status.sh            # running release, previous release, pending work
-sudo bash scripts/deploy.sh --retry    # try a failed commit again
-sudo bash scripts/rollback.sh          # return to the previous release (run again to undo)
-```
-
-Deployment logs are stored in `logs/videodownloaderbot-deploy-YYYY-MM-DD.log` for 30 days.
-
----
-
-## Bot usage
-
-1. Open your bot in Telegram
-2. Send any supported URL
-3. You’ll see the title + buttons:
-
-* **Download as Video**
-* **Download as Document** (original file)
-* **Download as Audio (MP3)** (only when it can fit)
-
-During work you can press **Cancel**.
-
-### What you’ll see in chat
-
-* “Getting info…” (short)
-* “Choose download method…” + size/quality info
-* Status message updates:
-
-  * ⬇️ Downloading…
-  * ⬆️ Sending video/document/audio…
-* On success: status message disappears, only media stays
-
----
-
-## Commands
-
-### `/start` and `/help`
-
-Shows a short help message and the current upload limit.
-
-### `/custom <url>` (kept as-is)
-
-Fetches formats and lets you pick one.
-
-> Note: after you pick a format, the bot returns to the same “choice UI” flow.
-
----
-
-## Configuration
-
-### The only required value
-
-* `BOT_TOKEN` — Telegram bot token from BotFather
-
-The installer creates `.env` from `.env-example` only when it does not exist:
-
-```env
-BOT_TOKEN=123456:ABCDEF...
-OUTPUT_FOLDER=/app/data/downloads
-LOGS_DIR=/app/logs
-```
-
-Operational settings are read through the validated `Settings` dataclass:
-
-* `LOGS_CHAT_ID` — optional operator chat for critical failures
-* `OUTPUT_FOLDER` — temporary per-job directories; Docker enforces `/app/data/downloads`
-* `LOGS_DIR` — rotating application logs
-* `MAX_FILESIZE` — strict upload limit; defaults to `52428800` bytes (50 MiB)
-* `WORKERS` — download workers; default `2`
-* `MAX_QUEUE` — bounded queue size; default `200`
-* `UPLOAD_WORKERS` — concurrent Telegram uploads; default `2`
-* `JOB_TIMEOUT_SECONDS` — whole-job deadline; default `900`
-* `PENDING_TTL_SECONDS` — button request lifetime; default `600`
-* `YTDLP_CONCURRENT_FRAGMENTS` — segmented download concurrency; default `4`
-* `YTDLP_JS_RUNTIMES` — yt-dlp JavaScript runtimes; default `node`
-* `YTDLP_REMOTE_COMPONENTS` — optional yt-dlp remote components; empty disables them
-* `YTDLP_YOUTUBE_PLAYER_CLIENTS` — ordered metadata fallback clients; default `default,android,ios`
-* `YTDLP_INSTAGRAM_IMPERSONATE` — optional Instagram impersonation target
-* `YTDLP_INSTAGRAM_RETRIES`, `YTDLP_INSTAGRAM_FRAGMENT_RETRIES`, `YTDLP_INSTAGRAM_SOCKET_TIMEOUT` — bounded Instagram retry/timeouts
-* `YTDLP_GENERIC_IMPERSONATE` — optional browser impersonation target for generic sites; default `chrome`
-* `METADATA_WORKERS` — maximum concurrent metadata operations; default `2`
-* `METADATA_TIMEOUT_SECONDS` — metadata-stage timeout; default `60`
-* `COOKIES_FILE` — optional cookies file, normally `/app/data/cookies.txt`
-* `LOG_LEVEL` — `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`
-
----
-
-## Manual installation (no installer)
-
-If you prefer doing everything yourself:
-
-```bash
-sudo apt-get update -y
-sudo apt-get install -y --no-install-recommends \
-  ca-certificates git python3 python3-venv python3-pip ffmpeg
-# Install Node.js 22 or newer for current yt-dlp YouTube support.
-
-git clone https://github.com/Avazbek22/VideoDownloaderBot.git
-cd VideoDownloaderBot
-
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
-
-# create .env
-cat > .env <<'EOF'
-BOT_TOKEN=PUT_YOUR_TOKEN_HERE
-OUTPUT_FOLDER=./data/downloads
-LOGS_DIR=./logs
-EOF
-
-# run
-python -u main.py
-```
-
-### Manual Docker start
-
-The image runs as UID/GID `10001`, so prepare the two writable bind mounts before starting it:
-
-```bash
-cp .env-example .env
-# Set BOT_TOKEN in .env, then:
-mkdir -p data logs
-sudo chown -R 10001:10001 data logs
-chmod 600 .env
-docker compose build
-docker compose up -d
-docker compose ps
-```
-
-The container root filesystem is read-only. Only `data/`, `logs/`, and the in-memory `/tmp` filesystem are writable; Docker health is based on a fresh `/tmp/videodownloaderbot.healthy` marker, which is refreshed only while the download workers run and Telegram answers `getUpdates`. Progress hooks stop a download when its actual byte count or reported total exceeds `MAX_FILESIZE`; `max_filesize` metadata checks alone are not treated as a hard streaming limit.
-
----
-
-## Requirements
-
-* Ubuntu 22.04 / 24.04 (recommended)
-* Python 3.11+ (Docker uses 3.12-slim)
-* ffmpeg
-* Node.js 22+
-* Telegram bot token
-
-Python dependencies (see `requirements.txt`):
-
-* `yt-dlp`
-* `pyTelegramBotAPI`
-* `requests-toolbelt` (upload progress)
-
----
-
-## Limitations (intentional)
-
-### 50 MB is strict
-
-This project is intentionally strict and predictable.
-If the bot expects a file won’t fit, it stops early and tells you **before downloading**.
-
-### “Unknown size” videos are refused
-
-If the bot can’t reliably determine the final size, it refuses video/document download.
-This avoids wasting time, bandwidth, and disk space on videos that will fail at upload.
-
-### Telegram compression behavior
-
-Telegram compression depends on client/platform/codec/bitrate.
-Sometimes “Video” looks nearly identical to “Document”. Document is always **as-is**.
-
----
-
-## FAQ
-
-### Why is there a 50 MB limit?
-
-Because this project is intentionally strict and predictable. If the bot expects that a file won’t fit, it stops early and tells you before downloading.
-
-### Is this a public bot?
-
-No. This repository is intended for **self-hosted private use**.
-
-### Why does Docker build show “Debian … trixie/bookworm …” packages?
-
-That’s inside the container image (base `python:*‑slim` images are Debian-based). Your Ubuntu host is not being “converted”.
-
-### YouTube prints warnings about JavaScript runtime
-
-The production image installs a checksum-verified Node.js runtime. Check it with `docker compose exec videodownloaderbot node --version`. Manual installations require Node.js 22 or newer.
-
-### I ran `install.sh` on Windows PowerShell and `chmod` is not found
-
-`install.sh` is a Linux script. Run it on Ubuntu/WSL/your VPS via Bash.
-
----
-
-## Troubleshooting
-
-### “Request expired. Send the link again.”
-
-The button UI has a TTL to prevent memory leaks. Just send the link again.
-
-### “This video is too large…” even before download
-
-That’s the strict pre-check working as intended.
-Try a shorter video, or use Audio if available.
-
-### Docker permission denied
-
-If you installed Docker and your user can’t access the daemon, re-login or run:
-
-```bash
-sudo usermod -aG docker $USER
-```
-
-Then reconnect your SSH session.
-
----
-
-## Project structure
-
-```
-.
-├── app/                     # Settings, planner, URL security, logging, helpers
-├── scripts/                 # Entrypoint, deploy, rollback, status, systemd units
-├── tests/                   # Python and rollback shell tests
-├── main.py                  # Existing Telegram UX and application lifecycle
-├── Dockerfile
-├── docker-compose.yml
-├── deploy.conf              # Deployment and nightly rebuild settings
-├── install.sh               # Idempotent production installer
-├── .env-example
-├── requirements.txt
-├── LICENSE
-└── README.md
-```
-
----
-
-## Contributing
-
-PRs are welcome.
-If you want new features (better format picking, larger limits via local Bot API/MTProto, etc.) open an issue.
-
-Ideas that fit this project’s philosophy:
-
-* Better format selection *without* quality squeezing
-* Better website-specific fallbacks
-* Better website-specific runtime compatibility
-* More robust size probing for edge sites
-
----
-
-## License
-
-MIT License
-
-Copyright (c) 2025 Avazbek22
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
----
-
-## Speed and YouTube boosters (optional)
-
-* **Faster downloads (automatic):** 8 parallel fragments and 10 MB ranged requests for YouTube
-  (`YTDLP_CONCURRENT_FRAGMENTS`, `YTDLP_HTTP_CHUNK_SIZE`).
-* **YouTube "confirm you're not a bot" without cookies or a proxy:** run the PO-token sidecar and
-  set `YTDLP_POT_BASE_URL=http://bgutil-pot:4416`. The default client chain is now
-  `default,tv,web_safari,mweb` (the old `android`/`ios` clients need PO tokens and always failed).
-  This reduces the check but cannot guarantee it: if YouTube has flagged the server's IP address,
-  only cookies, a proxy, or a different IP will clear it.
-* **Much faster upload and files up to 2 GB:** run a local Telegram Bot API server and set
-  `TELEGRAM_API_URL=http://telegram-bot-api:8081` (+ `TELEGRAM_API_ID`/`TELEGRAM_API_HASH`), then raise `MAX_FILESIZE`.
-  Call `https://api.telegram.org/bot<TOKEN>/logOut` once before switching.
-
-```bash
-docker compose --profile boost up -d     # starts bgutil-pot and telegram-bot-api
-```
-
-### Cookies as a Railway variable
-
-```bash
-base64 -w0 cookies.txt        # macOS: base64 -i cookies.txt | tr -d '\n'
-```
-Paste the single line into a Railway variable named `COOKIES_B64`. The bot writes it to a private
-temp file at startup (ignored when `COOKIES_FILE` is set). Use a throwaway Google account, never commit the file.
-
-### Interface and features added
-
-* Arabic interface (messages, buttons, status).
-* Quality picker: "best quality that fits" plus one button per available quality (e.g. 1080p / 720p / 480p).
-* Sent files carry a caption (title + duration), real width/height/duration, and a thumbnail taken from the video.
-* Playlists: send a playlist link, choose how many items (up to `PLAYLIST_MAX`, default 10) as video or audio.
-  Items are queued one by one with a short pause between lookups.
+## ✨ تحديثات الأداء والواجهة
+- رسالة التحميل: `🚀 2/3 جارٍ التحميل والإرسال إليك...` مع شريط تقدم ونسبة وحجم وسرعة ووقت متبقٍ وزر «⏹ إيقاف التنزيل».
+- تحميل أكثر من فيديو في نفس الوقت فعليًا (حجم Thread Pool قابل للتغيير بـ `THREADS`).
+- إصلاح aria2: كان `-x 24` يتخطى الحد الأقصى (16) فيفشل ويتعطل aria2؛ الآن التحميل متعدد الاتصالات يعمل.
+- لوحة الأدمن: 🍪 كوكيز يوتيوب، و✨ إيموجي بريميوم (يتطلب حساب صاحب البوت Premium أو يوزر Fragment).
